@@ -1,0 +1,70 @@
+[project]
+name = "distributed-system-design"
+version = "0.1.0"
+requires-python = ">=3.13"
+description = "A CLI tool designed to synchronize infrastructure requirements with Python application code"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Pymodeller team", email = "pymodeller@gmail.com" },
+]
+requires-python = ">=3.13"
+keywords = [
+    "python", "data modeller", "migrations", "yaml"
+]
+classifiers = [
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.12.0",
+    "typer<0.24",
+    "python-dotenv>=1.2.1",
+    "pyyaml>=6.0.3",
+    "jinja2==3.1.6",
+    "pyfiglet>=1.0.4",
+]
+
+[project.urls]
+Homepage = "https://pymodeller.github.io/PyModeller/"
+Repository = "https://github.com/pymodeller/PyModeller"
+Issues = "https://github.com/pymodeller/PyModeller/issues"
+
+[dependency-groups]
+test = [
+    "peewee",
+    "boto3>=1.34,<2",
+    "botocore",
+    "tabulate"
+]
+
+dev = [
+    "pre-commit>=4.5.1",
+    "pyrefly>=0.53.0",
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
+    "pytest-cookies>=0.7.0",
+    "pytest-cov>=7.0.0",
+    "pytest-xdist>=3.8.0",
+    "ruff>=0.15.1",
+    "ty>=0.0.17",
+    "python-semantic-release==10.5.3",
+    "twine",
+]
+
+docs = [
+    "mkdocs==1.6.1",
+    "mkdocs-material>=9.7.2",
+    "mkdocstrings>=1.0.3",
+    "mkdocstrings-python>=2.0.2",
+    "typing-extensions>=4.15.0",
+    "mkdocs-awesome-pages-plugin==2.9.3",
+    "pymdown-extensions>=10.21.2",
+]

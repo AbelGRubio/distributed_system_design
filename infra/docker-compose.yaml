@@ -1,0 +1,101 @@
+version: '3.8'
+
+services:
+  # ============================================================================
+  # Reverse Proxy / API Gateway
+  # ============================================================================
+  traefik:
+    image: traefik:v3.0
+    container_name: traefik
+    command:
+      - "--api.insecure=true" # Habilita el Dashboard de Traefik (solo para entorno de desarrollo)
+      - "--providers.docker=true" # Activa la detección automática de contenedores Docker
+      - "--providers.docker.exposedbydefault=false" # Solo expone los contenedores con label explícita
+      - "--entrypoints.web.address=:80" # Define el puerto HTTP de entrada
+    ports:
+      - "80:80"       # Puerto para tráfico HTTP público
+      - "8080:8080"   # Puerto para la UI del Dashboard de Traefik
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro # Permite a Traefik leer eventos del socket de Docker
+    networks:
+      - event-architecture-network
+
+  # ============================================================================
+  # Application Layer
+  # ============================================================================
+  app:
+    image: github.com/abelgrubio/hexagonal_architecture:v0.1.0
+    container_name: hexagonal_app
+    environment:
+      - REDIS_HOST=redis
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    depends_on:
+      - redis
+      - rabbitmq
+      - kafka
+    networks:
+      - event-architecture-network
+    labels:
+      - "traefik.enable=true" # Indica a Traefik que gestione este servicio
+      - "traefik.http.routers.app.rule=PathPrefix(`/`)" # Enruta el tráfico entrante al servicio
+      - "traefik.http.routers.app.entrypoints=web"
+      - "traefik.http.services.app.loadbalancer.server.port=8000" # Ajusta este puerto al que exponga tu app interna
+
+  # ============================================================================
+  # Infrastructure Services
+  # ============================================================================
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"   # Puerto AMQP
+      - "15672:15672" # Management Dashboard
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    networks:
+      - event-architecture-network
+
+  redis:
+    image: redis:alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    networks:
+      - event-architecture-network
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - event-architecture-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    networks:
+      - event-architecture-network
+
+# ============================================================================
+# Networks Configuration
+# ============================================================================
+networks:
+  event-architecture-network:
+    driver: bridge
