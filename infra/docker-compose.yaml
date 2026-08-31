@@ -1,209 +1,186 @@
 version: '3.8'
 
+# ============================================================================
+# Distributed Architecture - Core Services
+# ============================================================================
 services:
-  # ============================================================================
-  # Reverse Proxy / API Gateway
-  # ============================================================================
+
+  # --------------------------------------------------------------------------
+  # Reverse Proxy & Edge Router (Traefik)
+  # --------------------------------------------------------------------------
   traefik:
     image: traefik:v3.0
     container_name: traefik
+    restart: unless-stopped
     command:
-      - "--api.insecure=true" # Habilita el Dashboard de Traefik (solo para entorno de desarrollo)
-      - "--providers.docker=true" # Activa la detección automática de contenedores Docker
-      - "--providers.docker.exposedbydefault=false" # Solo expone los contenedores con label explícita
-      - "--entrypoints.web.address=:80" # Define el puerto HTTP de entrada
+      - "--api.insecure=true"                   # Enable Traefik Dashboard (Dev mode)
+      - "--providers.docker=true"               # Automatic Docker container discovery
+      - "--providers.docker.exposedbydefault=false" # Only expose explicitly labeled containers
+      - "--entrypoints.web.address=:80"        # Entrypoint listening on port 80
     ports:
-      - "80:80"       # Puerto para tráfico HTTP público
-      - "8080:8080"   # Puerto para la UI del Dashboard de Traefik
+      - "80:80"                                 # Public HTTP Port
+      - "8080:8080"                             # Traefik Dashboard Port
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro # Permite a Traefik leer eventos del socket de Docker
+      - /var/run/docker.sock:/var/run/docker.sock:ro # Read-only Docker socket access
     networks:
       - event-architecture-network
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
-# ============================================================================
-  # Application Services (Split Workers using CLI)
-  # ============================================================================
-
-  # Worker Producer
+  # --------------------------------------------------------------------------
+  # Application Layer - Event-Driven Workers
+  # --------------------------------------------------------------------------
+  # Worker 1: Synthetic cart items producer
   worker-producer:
     image: github.com/abelgrubio/hexagonal_architecture:v0.1.0
     container_name: worker_producer
-    command: ["opentelemetry-instrument","event-driven", "start", "producer"]
+    restart: always
+    command: ["opentelemetry-instrument", "event-driven", "start", "producer"]
+    env_file:
+      - otel.env
     environment:
       - RABBITMQ_HOST=rabbitmq
       - RABBITMQ_PORT=5672
-      - RABBITMQ_DEFAULT_USER=guest
-      - RABBITMQ_DEFAULT_PASS=guest
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER:-guest}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASS:-guest}
       - OTEL_SERVICE_NAME=worker-producer
-
-      # === Configuración OTEL Unificada (lo más importante) ===
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
-      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
-
-      - OTEL_TRACES_EXPORTER=otlp
-      - OTEL_LOGS_EXPORTER=otlp
-      - OTEL_PROPAGATORS=tracecontext,baggage
-
-      # Logs Python
-      - OTEL_PYTHON_LOG_CORRELATION=true
-      - OTEL_PYTHON_LOG_LEVEL=INFO
-      - OTEL_SEMCONV_STABILITY_OPT_IN=http
     depends_on:
-      - rabbitmq
-      - otel-collector
+      rabbitmq:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
     networks:
       - event-architecture-network
 
-  # Worker Inventory
+  # Worker 2: Inventory consumer processing carts
   worker-inventory:
     image: github.com/abelgrubio/hexagonal_architecture:v0.1.0
     container_name: worker_inventory
+    restart: always
     command: ["opentelemetry-instrument", "event-driven", "start", "inventory"]
+    env_file:
+      - otel.env
     environment:
       - RABBITMQ_HOST=rabbitmq
       - RABBITMQ_PORT=5672
-      - RABBITMQ_DEFAULT_USER=guest
-      - RABBITMQ_DEFAULT_PASS=guest
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER:-guest}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASS:-guest}
       - OTEL_SERVICE_NAME=worker-inventory
-
-      # === Configuración OTEL Unificada (lo más importante) ===
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
-      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
-
-      - OTEL_TRACES_EXPORTER=otlp
-      - OTEL_LOGS_EXPORTER=otlp
-      - OTEL_PROPAGATORS=tracecontext,baggage
-
-      # Logs Python
-      - OTEL_PYTHON_LOG_CORRELATION=true
-      - OTEL_PYTHON_LOG_LEVEL=INFO
-      - OTEL_SEMCONV_STABILITY_OPT_IN=http
     depends_on:
-      - rabbitmq
-      - otel-collector
+      rabbitmq:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
     networks:
       - event-architecture-network
 
-  # Worker Order
+  # Worker 3: Order management processing reserved inventory
   worker-order:
     image: github.com/abelgrubio/hexagonal_architecture:v0.1.0
     container_name: worker_order
+    restart: always
     command: ["opentelemetry-instrument", "event-driven", "start", "order"]
+    env_file:
+      - otel.env
     environment:
       - RABBITMQ_HOST=rabbitmq
       - RABBITMQ_PORT=5672
-      - RABBITMQ_DEFAULT_USER=guest
-      - RABBITMQ_DEFAULT_PASS=guest
-
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER:-guest}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASS:-guest}
       - OTEL_SERVICE_NAME=worker-order
-
-      # === Configuración OTEL Unificada (lo más importante) ===
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
-      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
-
-      - OTEL_TRACES_EXPORTER=otlp
-      - OTEL_LOGS_EXPORTER=otlp
-      - OTEL_PROPAGATORS=tracecontext,baggage
-
-      # Logs Python
-      - OTEL_PYTHON_LOG_CORRELATION=true
-      - OTEL_PYTHON_LOG_LEVEL=INFO
-      - OTEL_SEMCONV_STABILITY_OPT_IN=http
     depends_on:
-      - rabbitmq
-      - otel-collector
+      rabbitmq:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
     networks:
       - event-architecture-network
 
-  # Worker Payment
+  # Worker 4: Payment processing
   worker-payment:
     image: github.com/abelgrubio/hexagonal_architecture:v0.1.0
     container_name: worker_payment
+    restart: always
     command: ["opentelemetry-instrument", "event-driven", "start", "payment"]
+    env_file:
+      - otel.env
     environment:
       - RABBITMQ_HOST=rabbitmq
       - RABBITMQ_PORT=5672
-      - RABBITMQ_DEFAULT_USER=guest
-      - RABBITMQ_DEFAULT_PASS=guest
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER:-guest}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASS:-guest}
       - OTEL_SERVICE_NAME=worker-payment
-
-      # === Configuración OTEL Unificada (lo más importante) ===
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
-      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
-
-      - OTEL_TRACES_EXPORTER=otlp
-      - OTEL_LOGS_EXPORTER=otlp
-      - OTEL_PROPAGATORS=tracecontext,baggage
-
-      # Logs Python
-      - OTEL_PYTHON_LOG_CORRELATION=true
-      - OTEL_PYTHON_LOG_LEVEL=INFO
-      - OTEL_SEMCONV_STABILITY_OPT_IN=http
     depends_on:
-      - rabbitmq
-      - otel-collector
+      rabbitmq:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
     networks:
       - event-architecture-network
 
-  # Worker Notification
+  # Worker 5: User notification (final step)
   worker-notification:
     image: github.com/abelgrubio/hexagonal_architecture:v0.1.0
     container_name: worker_notification
+    restart: always
     command: ["opentelemetry-instrument", "event-driven", "start", "notification"]
+    env_file:
+      - otel.env
     environment:
       - RABBITMQ_HOST=rabbitmq
       - RABBITMQ_PORT=5672
-      - RABBITMQ_DEFAULT_USER=guest
-      - RABBITMQ_DEFAULT_PASS=guest
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER:-guest}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASS:-guest}
       - OTEL_SERVICE_NAME=worker-notification
-
-      # === Configuración OTEL Unificada (lo más importante) ===
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
-      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
-
-      - OTEL_TRACES_EXPORTER=otlp
-      - OTEL_LOGS_EXPORTER=otlp
-      - OTEL_PROPAGATORS=tracecontext,baggage
-
-      # Logs Python
-      - OTEL_PYTHON_LOG_CORRELATION=true
-      - OTEL_PYTHON_LOG_LEVEL=INFO
-      - OTEL_SEMCONV_STABILITY_OPT_IN=http
     depends_on:
-      - rabbitmq
-      - otel-collector
+      rabbitmq:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
     networks:
       - event-architecture-network
 
-  # ============================================================================
-  # Core Infrastructure
-  # ============================================================================
+  # --------------------------------------------------------------------------
+  # Core Infrastructure - Message Broker
+  # --------------------------------------------------------------------------
   rabbitmq:
     image: rabbitmq:3-management
     container_name: rabbitmq
+    restart: unless-stopped
     ports:
-      - "5672:5672"   # Puerto AMQP
-      - "15672:15672" # Dashboard de administración
+      - "5672:5672"                           # AMQP messaging port
+      - "15672:15672"                         # RabbitMQ Management Web Console
     environment:
-      - RABBITMQ_DEFAULT_USER=guest
-      - RABBITMQ_DEFAULT_PASS=guest
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER:-guest}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASS:-guest}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq        # Persistent storage for messages and queues
     networks:
       - event-architecture-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  # ============================================================================
-  # Observability & Tracing Infrastructure
-  # ============================================================================
+  # --------------------------------------------------------------------------
+  # Observability & Telemetry Infrastructure
+  # --------------------------------------------------------------------------
   otel-collector:
     platform: linux/amd64
     image: otel/opentelemetry-collector:0.148.0
     container_name: otel-collector
+    restart: unless-stopped
     volumes:
       - ./otel-collector.yaml:/etc/otel/config.yaml
     command: [ "--config=/etc/otel/config.yaml" ]
     ports:
-      - "4317:4317"  # Recibidor OTLP gRPC
-      - "4318:4318"  # Recibidor OTLP HTTP
-      - "9464:9464"  # Endpoint para métricas de Prometheus
+      - "4317:4317"                           # OTLP gRPC receiver
+      - "4318:4318"                           # OTLP HTTP receiver
+      - "9464:9464"                           # Prometheus metrics scrape endpoint
     depends_on:
       - jaeger
       - loki
@@ -214,12 +191,13 @@ services:
   tempo:
     image: grafana/tempo:2.10.3
     container_name: tempo
+    restart: unless-stopped
     command: ["-config.file=/etc/tempo/tempo.yaml"]
     volumes:
       - ./tempo.yaml:/etc/tempo/tempo.yaml
-      - tempo_data:/var/tempo
+      - tempo_data:/var/tempo                 # Persistent storage for trace data
     ports:
-      - "3200:3200" # API de Tempo para Grafana
+      - "3200:3200"                           # Tempo API for Grafana datasource
     networks:
       - event-architecture-network
 
@@ -227,21 +205,23 @@ services:
     platform: linux/amd64
     image: jaegertracing/all-in-one:1.76.0
     container_name: jaeger
+    restart: unless-stopped
     environment:
-      - COLLECTOR_OTLP_ENABLED=true
+      - COLLECTOR_OTLP_ENABLED=true          # Enable OTLP gRPC ingest
     ports:
-      - "16686:16686" # UI de Jaeger
-      - "14250:14250" # gRPC Thrift
+      - "16686:16686"                         # Jaeger Query / Web UI
+      - "14250:14250"                         # gRPC Thrift collector
     networks:
       - event-architecture-network
 
   prometheus:
     image: prom/prometheus:v3
     container_name: prometheus
+    restart: unless-stopped
     volumes:
       - ./prometheus.yaml:/etc/prometheus/prometheus.yml
     ports:
-      - "9090:9090"
+      - "9090:9090"                           # Prometheus Web Console & API
     depends_on:
       - otel-collector
     networks:
@@ -251,26 +231,28 @@ services:
     platform: linux/amd64
     image: grafana/grafana:12.4.2
     container_name: grafana
+    restart: unless-stopped
     ports:
-      - "4000:3000" # UI de Grafana
+      - "4000:3000"                           # Grafana Dashboard UI
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASS:-admin}
     depends_on:
       - prometheus
     networks:
       - event-architecture-network
     volumes:
-      - grafana:/var/lib/grafana
+      - grafana_data:/var/lib/grafana         # Persistent dashboards and user data
       - ./grafana/provisioning:/etc/grafana/provisioning
 
   loki:
     platform: linux/amd64
     image: grafana/loki:3.7
     container_name: loki
+    restart: unless-stopped
     ports:
-      - "3100:3100"
-      - "9096:9096"
+      - "3100:3100"                           # Loki HTTP log receiver
+      - "9096:9096"                           # Loki gRPC port
     volumes:
       - ./loki.yaml:/etc/loki/loki.yaml
     command: -config.file=/etc/loki/loki.yaml
@@ -285,5 +267,6 @@ networks:
     driver: bridge
 
 volumes:
-  grafana:
+  rabbitmq_data:
+  grafana_data:
   tempo_data:
